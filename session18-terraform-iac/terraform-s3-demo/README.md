@@ -1,256 +1,92 @@
-# Terraform S3 Bucket Demo
+# Terraform S3 Demo – Session 18
 
-## Project Structure
+Create one S3 bucket with Terraform and walk the full workflow: `init → fmt → validate → plan → apply → show → output → destroy`.
+
+## Project structure
 
 ```text
 terraform-s3-demo/
-|
-|-- README.md
-|-- terraform.tf
-|-- providers.tf
-|-- variables.tf
-|-- terraform.tfvars
-|-- main.tf
-|-- outputs.tf
-|-- .gitignore
+├── terraform.tf              # required Terraform + provider versions
+├── providers.tf              # provider "aws" { region = var.aws_region }
+├── variables.tf              # aws_region, bucket_name
+├── terraform.tfvars          # my values (region ap-south-1, bucket gaurav-session18-tf-demo)
+├── terraform.tfvars.example  # template for others
+├── main.tf                   # resource "aws_s3_bucket" "devops553"
+├── outputs.tf                # bucket_name, bucket_arn, bucket_region
+├── .terraform.lock.hcl       # provider version lock (commit it)
+├── .gitignore                # .terraform/, *.tfstate, tfplan
+└── README.md
 ```
 
-## Architecture
+## How the files fit together
 
 ```text
-terraform.tf
-     |
-     v
-Provider Configuration
-     |
-     v
-variables.tf
-     |
-     v
-terraform.tfvars
-     |
-     v
-main.tf
-     |
-     v
-aws_s3_bucket.demo
-     |
-     v
-AWS S3 Bucket
-     |
-     v
-outputs.tf
+terraform.tf ──▶ provider plugin (hashicorp/aws ~> 6.0)
+providers.tf ──▶ region comes from var.aws_region
+variables.tf ──▶ declares inputs ──▶ terraform.tfvars supplies values
+main.tf      ──▶ aws_s3_bucket.devops553 { bucket = var.bucket_name, tags }
+outputs.tf   ──▶ exposes name / ARN / region after apply
+terraform.tfstate ──▶ Terraform's memory of what it created (never edit, never commit)
 ```
 
-## Prerequisites
-
-Install:
-
-* Terraform
-* AWS CLI
-
-Configure AWS:
+## Environment note
+There are no AWS credentials on my laptop for this course, so I ran the identical configuration against a local AWS-compatible mock (`moto_server` listening on port 4566) by exporting:
 
 ```bash
-aws configure
+export AWS_ACCESS_KEY_ID=test AWS_SECRET_ACCESS_KEY=test
+export AWS_ENDPOINT_URL=http://localhost.localstack.cloud:4566   # resolves to 127.0.0.1
 ```
 
-Verify:
+The AWS provider honours `AWS_ENDPOINT_URL`, so **no Terraform file changes** were needed; against a real account you simply unset those variables and run `aws configure` (or set `AWS_PROFILE`). Every command, plan and state transition below is real Terraform output.
 
-```bash
-aws sts get-caller-identity
-```
+## Workflow
 
-## Terraform Workflow
+### 1. `terraform init`
+Downloads the AWS provider declared in `terraform.tf` into `.terraform/`, writes `.terraform.lock.hcl`, and sets up the (local) backend.
 
-### 1. Initialize
+### 2. `terraform fmt`
+Rewrites files into canonical HCL style. `-diff` shows what changed, `-check` is what CI uses to fail on unformatted code.
 
+### 3. `terraform validate`
+Checks syntax, references, types and required arguments without contacting AWS. `Success! The configuration is valid.`
+
+![init, fmt, validate](/assets/s18-terraform-01.png)
+
+### 4. `terraform plan -out=tfplan`
+Reads the state, refreshes real resources, and prints the diff: `Plan: 1 to add, 0 to change, 0 to destroy.` Saving the plan guarantees `apply` does exactly what was reviewed.
+
+### 5. `terraform apply tfplan`
+Creates the bucket: `aws_s3_bucket.devops553: Creation complete after 3s [id=gaurav-session18-tf-demo]` → `Apply complete! Resources: 1 added`.
+
+### 6. `terraform show`
+Dumps the state in human-readable form: every attribute Terraform now knows about the bucket (ARN, region, domain names, tags).
+
+### 7. `terraform output`
+Prints the values from `outputs.tf`; `terraform output -raw bucket_arn` is handy in scripts.
+
+### 8. `terraform state list`
+Lists tracked resources (`aws_s3_bucket.devops553`). A direct `curl` of the S3 endpoint also listed the bucket.
+
+### 9. `terraform destroy -auto-approve`
+Deletes everything in the state: `Destroy complete! Resources: 1 destroyed.` `terraform state list` is then empty.
+
+![plan, apply, show, output, destroy](/assets/s18-terraform-02.png)
+
+## Things I noted
+- `force_destroy = true` on the bucket lets `destroy` succeed even if objects were uploaded; without it, S3 refuses to delete a non-empty bucket.
+- Bucket names are global, so the default `yatri1107` from the course would collide with the instructor's; `terraform.tfvars` overrides it to `gaurav-session18-tf-demo`.
+- `*.tfvars` is git-ignored by default because it often holds secrets; here it only holds a region and a name, so `terraform.tfvars` is explicitly un-ignored and committed next to a `.example`.
+- The state file contains everything about the resource (including sensitive values for other resource types) – the next step in a team is an S3 backend with versioning and locking, which is exactly what the S3 + DynamoDB notes in `../aws-services/` describe.
+
+## Commands at a glance
 ```bash
 terraform init
-```
-
-Expected:
-
-```text
-Initializing the provider plugins...
-Terraform has been successfully initialized!
-```
-
-### 2. Format
-
-```bash
-terraform fmt
-```
-
-### 3. Validate
-
-```bash
+terraform fmt -recursive -diff
 terraform validate
-```
-
-Expected:
-
-```text
-Success! The configuration is valid.
-```
-
-### 4. Plan
-
-```bash
-terraform plan
-```
-
-Expected:
-
-```text
-Plan: 1 to add, 0 to change, 0 to destroy.
-```
-
-### 5. Apply
-
-```bash
-terraform apply
-```
-
-Terraform asks:
-
-```text
-Do you want to perform these actions?
-  Only 'yes' will be accepted to approve.
-Enter a value:
-```
-
-Enter:
-
-```text
-yes
-```
-
-Expected:
-
-```text
-Apply complete! Resources: 1 added, 0 changed, 0 destroyed.
-Outputs:
-bucket_arn = "arn:aws:s3:::demo"
-bucket_name = "demo"
-bucket_region = "ap-south-1"
-```
-
-### 6. Check State
-
-```bash
-terraform state list
-```
-
-Expected:
-
-```text
-aws_s3_bucket.demo
-```
-
-Inspect the resource:
-
-```bash
-terraform state show aws_s3_bucket.demo
-```
-
-### 7. Check Output
-
-```bash
-terraform output
-```
-
-Or:
-
-```bash
-terraform output bucket_name
-```
-
-Expected:
-
-```text
-"demo"
-```
-
-### 8. Verify Using AWS CLI
-
-```bash
-aws s3 ls
-```
-
-Or:
-
-```bash
-aws s3api head-bucket --bucket demo
-```
-
-### 9. Destroy
-
-After completing the demo:
-
-```bash
-terraform plan -destroy
-```
-
-Then:
-
-```bash
-terraform destroy
-```
-
-Enter:
-
-```text
-yes
-```
-
-Expected:
-
-```text
-Destroy complete! Resources: 1 destroyed.
-```
-
-## Complete Demo
-
-Run:
-
-```bash
-aws sts get-caller-identity
-terraform init
-terraform fmt
-terraform validate
-terraform plan
-terraform apply
+terraform plan -out=tfplan
+terraform apply tfplan
+terraform show
 terraform output
 terraform state list
-terraform state show aws_s3_bucket.demo
-terraform plan -destroy
-terraform destroy
-```
-
-## Terraform Lifecycle
-
-```text
-              .tf files
-                  |
-                  v
-          terraform init
-                  |
-                  v
-          terraform validate
-                  |
-                  v
-            terraform plan
-                  |
-                  v
-           terraform apply
-                  |
-                  v
-             AWS S3
-                  |
-                  v
-          terraform state
-                  |
-                  v
-          terraform destroy
+terraform destroy -auto-approve
 ```

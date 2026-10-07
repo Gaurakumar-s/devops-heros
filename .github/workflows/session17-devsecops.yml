@@ -23,7 +23,7 @@ on:
 
 env:
   APP_DIR: session-17-devsecops/demo
-  IMAGE_NAME: ghcr.io/${{ github.repository_owner }}/session17-hey-cicd
+  IMAGE_NAME: ghcr.io/gaurakumar-s/session17-hey-cicd   # must be lowercase for docker tags
 
 defaults:
   run:
