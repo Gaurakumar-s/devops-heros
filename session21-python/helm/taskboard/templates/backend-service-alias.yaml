@@ -1,0 +1,14 @@
+# The frontend's nginx.conf proxies /api to http://backend:8000 (the docker-compose service
+# name). Inside Kubernetes the Service is called {{ include "taskboard.fullname" . }}-backend, so
+# without this alias nginx fails to start: "host not found in upstream backend".
+apiVersion: v1
+kind: Service
+metadata:
+  name: backend
+  labels: {app: taskboard-backend-alias}
+spec:
+  selector: {app: taskboard-backend}
+  ports:
+    - name: http
+      port: 8000
+      targetPort: 8000
