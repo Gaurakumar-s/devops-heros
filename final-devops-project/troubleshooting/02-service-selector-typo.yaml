@@ -1,0 +1,14 @@
+# ISSUE 2 – Service selector does not match the Pod labels (app=taskboard)
+apiVersion: v1
+kind: Service
+metadata:
+  name: taskboard
+  namespace: taskboard
+spec:
+  type: ClusterIP
+  selector:
+    app: taskbaord
+  ports:
+    - name: http
+      port: 80
+      targetPort: http

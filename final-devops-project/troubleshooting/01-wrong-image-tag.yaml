@@ -1,0 +1,27 @@
+# ISSUE 1 – image tag that was never built/pushed
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: taskboard
+  namespace: taskboard
+spec:
+  replicas: 2
+  strategy: { type: Recreate }
+  selector:
+    matchLabels: { app: taskboard }
+  template:
+    metadata:
+      labels: { app: taskboard }
+    spec:
+      containers:
+        - name: taskboard
+          image: ghcr.io/gaurakumar-s/taskboard:v9.9.9-does-not-exist
+          imagePullPolicy: IfNotPresent
+          ports: [{ name: http, containerPort: 8080 }]
+          envFrom: [{ configMapRef: { name: taskboard-config } }]
+          env:
+            - { name: ADMIN_TOKEN, valueFrom: { secretKeyRef: { name: taskboard-secret, key: ADMIN_TOKEN } } }
+          volumeMounts: [{ name: data, mountPath: /data }]
+      volumes:
+        - name: data
+          persistentVolumeClaim: { claimName: taskboard-data }

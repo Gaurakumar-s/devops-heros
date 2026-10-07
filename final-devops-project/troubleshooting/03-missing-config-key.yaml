@@ -1,0 +1,36 @@
+# ISSUE 3 – ConfigMap no longer has DATA_DIR / PORT, and the Deployment references a Secret key that does not exist
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: taskboard-config
+  namespace: taskboard
+data:
+  APP_NAME: taskboard
+  ENVIRONMENT: production
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: taskboard
+  namespace: taskboard
+spec:
+  replicas: 2
+  strategy: { type: Recreate }
+  selector:
+    matchLabels: { app: taskboard }
+  template:
+    metadata:
+      labels: { app: taskboard }
+    spec:
+      containers:
+        - name: taskboard
+          image: ghcr.io/gaurakumar-s/taskboard:latest
+          imagePullPolicy: IfNotPresent
+          ports: [{ name: http, containerPort: 8080 }]
+          envFrom: [{ configMapRef: { name: taskboard-config } }]
+          env:
+            - { name: ADMIN_TOKEN, valueFrom: { secretKeyRef: { name: taskboard-secret, key: ADMIN_PASSWORD } } }
+          volumeMounts: [{ name: data, mountPath: /data }]
+      volumes:
+        - name: data
+          persistentVolumeClaim: { claimName: taskboard-data }
