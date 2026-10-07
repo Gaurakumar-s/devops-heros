@@ -1,0 +1,166 @@
+# Session 21 – Final project pipeline (CI + DevSecOps + CD).
+# Code -> Build -> Unit Test -> SAST -> SCA -> Secret Scan -> Docker Build -> Image Scan
+#      -> Security Gate -> Push Image (GHCR) -> Deploy with Helm to a kind cluster -> smoke test
+name: Final Project Pipeline
+
+on:
+  push:
+    branches: [main]
+    paths: ["final-devops-project/**", ".github/workflows/final-project.yml"]
+  pull_request:
+    branches: [main]
+    paths: ["final-devops-project/**"]
+  workflow_dispatch:
+
+env:
+  PROJECT_DIR: final-devops-project
+  IMAGE_NAME: ghcr.io/gaurakumar-s/taskboard
+
+defaults:
+  run:
+    working-directory: final-devops-project
+
+jobs:
+  build:
+    name: Build
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with: { python-version: "3.12", cache: pip, cache-dependency-path: final-devops-project/application/requirements*.txt }
+      - run: pip install -r application/requirements-dev.txt && python -m compileall -q application/app
+
+  unit-test:
+    name: Unit Test
+    needs: build
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with: { python-version: "3.12", cache: pip, cache-dependency-path: final-devops-project/application/requirements*.txt }
+      - run: pip install -r application/requirements-dev.txt
+      - run: cd application && pytest -q --cov=app --cov-report=term-missing --junitxml=../pytest.xml
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with: { name: unit-test-report, path: final-devops-project/pytest.xml }
+
+  sast:
+    name: SAST (Bandit + Semgrep)
+    needs: unit-test
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with: { python-version: "3.12" }
+      - run: pip install bandit semgrep
+      - run: bandit -c security/bandit.yaml -r application/app --severity-level high
+      - run: semgrep scan --config p/python --config p/flask --error --metrics=off application/app
+
+  sca:
+    name: SCA (pip-audit)
+    needs: sast
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with: { python-version: "3.12" }
+      - run: pip install pip-audit && pip-audit -r application/requirements.txt --desc on
+
+  secret-scan:
+    name: Secret Scan (Gitleaks)
+    needs: sca
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with: { fetch-depth: 0 }
+      - working-directory: .
+        run: |
+          curl -sSL https://github.com/gitleaks/gitleaks/releases/download/v8.30.1/gitleaks_8.30.1_linux_x64.tar.gz | tar -xz gitleaks
+          ./gitleaks dir ${{ env.PROJECT_DIR }} --config ${{ env.PROJECT_DIR }}/security/gitleaks.toml --redact --verbose
+
+  docker-build:
+    name: Docker Build
+    needs: secret-scan
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: docker/setup-buildx-action@v3
+      - uses: docker/build-push-action@v6
+        with:
+          context: ${{ env.PROJECT_DIR }}
+          file: ${{ env.PROJECT_DIR }}/docker/Dockerfile
+          tags: ${{ env.IMAGE_NAME }}:${{ github.sha }}
+          outputs: type=docker,dest=/tmp/image.tar
+      - uses: actions/upload-artifact@v4
+        with: { name: docker-image, path: /tmp/image.tar, retention-days: 1 }
+
+  image-scan:
+    name: Container Image Scan (Trivy)
+    needs: docker-build
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/download-artifact@v4
+        with: { name: docker-image, path: /tmp }
+      - working-directory: .
+        run: |
+          curl -sSL https://github.com/aquasecurity/trivy/releases/download/v0.75.0/trivy_0.75.0_Linux-64bit.tar.gz | tar -xz trivy
+          ./trivy image --input /tmp/image.tar --scanners vuln --format table --ignorefile ${{ env.PROJECT_DIR }}/security/.trivyignore
+          ./trivy image --input /tmp/image.tar --scanners vuln --severity CRITICAL --ignore-unfixed --exit-code 1 --ignorefile ${{ env.PROJECT_DIR }}/security/.trivyignore
+
+  security-gate:
+    name: Security Gate
+    needs: [sast, sca, secret-scan, image-scan]
+    runs-on: ubuntu-latest
+    steps:
+      - working-directory: .
+        run: echo "SAST=${{ needs.sast.result }} SCA=${{ needs.sca.result }} secrets=${{ needs.secret-scan.result }} image=${{ needs.image-scan.result }} -> GATE OPEN"
+
+  push-image:
+    name: Push Image (GHCR)
+    needs: security-gate
+    if: github.event_name != 'pull_request'
+    runs-on: ubuntu-latest
+    permissions: { contents: read, packages: write }
+    steps:
+      - uses: actions/download-artifact@v4
+        with: { name: docker-image, path: /tmp }
+      - uses: docker/login-action@v3
+        with: { registry: ghcr.io, username: "${{ github.actor }}", password: "${{ secrets.GITHUB_TOKEN }}" }
+      - working-directory: .
+        run: |
+          docker load -i /tmp/image.tar
+          docker tag ${{ env.IMAGE_NAME }}:${{ github.sha }} ${{ env.IMAGE_NAME }}:latest
+          docker push ${{ env.IMAGE_NAME }}:${{ github.sha }}
+          docker push ${{ env.IMAGE_NAME }}:latest
+
+  deploy:
+    name: Deploy with Helm (kind)
+    needs: push-image
+    if: github.ref == 'refs/heads/main' && github.event_name != 'pull_request'
+    runs-on: ubuntu-latest
+    permissions: { contents: read, packages: read }
+    steps:
+      - uses: actions/checkout@v4
+      - uses: helm/kind-action@v1.10.0
+      - name: Registry credentials + namespace
+        run: |
+          kubectl create namespace taskboard
+          kubectl -n taskboard create secret docker-registry ghcr-creds --docker-server=ghcr.io \
+            --docker-username=${{ github.actor }} --docker-password=${{ secrets.GITHUB_TOKEN }}
+          kubectl -n taskboard patch serviceaccount default -p '{"imagePullSecrets":[{"name":"ghcr-creds"}]}'
+      - name: helm upgrade --install
+        run: |
+          helm upgrade --install taskboard helm/taskboard -n taskboard \
+            --set image.tag=${{ github.sha }} --set ingress.enabled=false --set autoscaling.enabled=false \
+            --set secret.adminToken=${{ secrets.GITHUB_TOKEN }} --wait --timeout 180s
+          kubectl -n taskboard get pods,svc,pvc
+      - name: Smoke test
+        run: |
+          kubectl -n taskboard port-forward svc/taskboard-taskboard 8080:80 &
+          sleep 5
+          curl -sf http://localhost:8080/health && echo
+          curl -sf http://localhost:8080/ready && echo
+          curl -sf -X POST http://localhost:8080/api/tasks -H 'Content-Type: application/json' -d '{"title":"deployed by pipeline"}' && echo
+          curl -sf http://localhost:8080/api/tasks && echo
+          curl -sf http://localhost:8080/metrics | grep taskboard_requests_total | head -3

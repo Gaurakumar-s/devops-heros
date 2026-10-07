@@ -1,0 +1,4 @@
+TaskBoard {{ .Chart.AppVersion }} installed as release {{ .Release.Name }} in namespace {{ .Release.Namespace }}.
+
+  kubectl -n {{ .Release.Namespace }} get pods,svc,ingress,hpa,pvc
+  curl -H "Host: {{ .Values.ingress.host }}" http://$(minikube ip)/api/tasks

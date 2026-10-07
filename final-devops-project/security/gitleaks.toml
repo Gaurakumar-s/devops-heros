@@ -1,0 +1,6 @@
+[extend]
+useDefault = true
+[allowlist]
+description = "lab placeholders that are not real secrets"
+regexes = ['''change-me-admin-token''', '''local-admin-token''', '''test-admin-token''']
+paths = ['''kubernetes/02-secret.yaml''', '''helm/taskboard/values.yaml''']

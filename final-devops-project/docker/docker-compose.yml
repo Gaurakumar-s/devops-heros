@@ -1,0 +1,17 @@
+# Local run: `docker compose -f docker/docker-compose.yml up --build` from final-devops-project/
+services:
+  taskboard:
+    build:
+      context: ..
+      dockerfile: docker/Dockerfile
+    image: taskboard:local
+    ports:
+      - "8080:8080"
+    environment:
+      APP_NAME: taskboard
+      ENVIRONMENT: local
+      ADMIN_TOKEN: local-admin-token
+    volumes:
+      - taskboard-data:/data
+volumes:
+  taskboard-data:

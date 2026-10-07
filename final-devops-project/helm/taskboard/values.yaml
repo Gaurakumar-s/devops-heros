@@ -1,0 +1,39 @@
+replicaCount: 2
+
+image:
+  repository: ghcr.io/gaurakumar-s/taskboard
+  tag: latest
+  pullPolicy: IfNotPresent
+
+config:
+  APP_NAME: taskboard
+  ENVIRONMENT: production
+  DATA_DIR: /data
+  PORT: "8080"
+
+# plain value for the lab; in real use pass --set secret.adminToken=... or use an external secret
+secret:
+  adminToken: change-me-admin-token
+
+service:
+  type: ClusterIP
+  port: 80
+
+ingress:
+  enabled: true
+  className: nginx
+  host: taskboard.local
+
+persistence:
+  enabled: true
+  size: 500Mi
+
+resources:
+  requests: { cpu: 100m, memory: 64Mi }
+  limits:   { cpu: 500m, memory: 256Mi }
+
+autoscaling:
+  enabled: true
+  minReplicas: 2
+  maxReplicas: 5
+  targetCPUUtilizationPercentage: 60

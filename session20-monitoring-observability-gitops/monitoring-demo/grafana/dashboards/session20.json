@@ -1,0 +1,28 @@
+{
+  "uid": "session20", "title": "Session 20 - Monitoring Demo", "schemaVersion": 39, "refresh": "5s",
+  "time": {"from": "now-15m", "to": "now"},
+  "panels": [
+    {"id": 1, "type": "timeseries", "title": "CPU utilisation %", "gridPos": {"x": 0, "y": 0, "w": 12, "h": 8},
+     "datasource": {"uid": "prometheus"},
+     "targets": [{"refId": "A", "expr": "100 - (avg by (instance) (rate(node_cpu_seconds_total{mode=\"idle\"}[1m])) * 100)", "legendFormat": "cpu %"}],
+     "fieldConfig": {"defaults": {"unit": "percent", "min": 0, "max": 100}}},
+    {"id": 2, "type": "timeseries", "title": "Memory utilisation %", "gridPos": {"x": 12, "y": 0, "w": 12, "h": 8},
+     "datasource": {"uid": "prometheus"},
+     "targets": [{"refId": "A", "expr": "(1 - node_memory_MemAvailable_bytes / node_memory_MemTotal_bytes) * 100", "legendFormat": "mem %"}],
+     "fieldConfig": {"defaults": {"unit": "percent", "min": 0, "max": 100}}},
+    {"id": 3, "type": "stat", "title": "Application health (demo_app_healthy)", "gridPos": {"x": 0, "y": 8, "w": 6, "h": 6},
+     "datasource": {"uid": "prometheus"},
+     "targets": [{"refId": "A", "expr": "demo_app_healthy"}],
+     "fieldConfig": {"defaults": {"thresholds": {"mode": "absolute", "steps": [{"color": "red", "value": null}, {"color": "green", "value": 1}]}}}},
+    {"id": 4, "type": "stat", "title": "Targets up", "gridPos": {"x": 6, "y": 8, "w": 6, "h": 6},
+     "datasource": {"uid": "prometheus"},
+     "targets": [{"refId": "A", "expr": "sum(up)"}]},
+    {"id": 5, "type": "timeseries", "title": "Requests / s by path", "gridPos": {"x": 12, "y": 8, "w": 12, "h": 6},
+     "datasource": {"uid": "prometheus"},
+     "targets": [{"refId": "A", "expr": "sum by (path) (rate(demo_app_requests_total[1m]))", "legendFormat": "{{path}}"}]},
+    {"id": 6, "type": "timeseries", "title": "p95 latency", "gridPos": {"x": 0, "y": 14, "w": 12, "h": 6},
+     "datasource": {"uid": "prometheus"},
+     "targets": [{"refId": "A", "expr": "histogram_quantile(0.95, sum by (le, path) (rate(demo_app_request_seconds_bucket[1m])))", "legendFormat": "{{path}}"}],
+     "fieldConfig": {"defaults": {"unit": "s"}}}
+  ]
+}

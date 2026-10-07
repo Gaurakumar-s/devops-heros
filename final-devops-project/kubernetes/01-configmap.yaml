@@ -1,0 +1,10 @@
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: taskboard-config
+  namespace: taskboard
+data:
+  APP_NAME: taskboard
+  ENVIRONMENT: production
+  DATA_DIR: /data
+  PORT: "8080"

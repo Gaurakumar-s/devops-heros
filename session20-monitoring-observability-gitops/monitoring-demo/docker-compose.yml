@@ -1,0 +1,44 @@
+# Session 20 monitoring demo: Prometheus scrapes itself, node-exporter (host CPU/RAM),
+# cAdvisor-free container stats via docker's own metrics are skipped; a demo app
+# (python http server) exposes /metrics through the prometheus client library.
+# Grafana is provisioned with the Prometheus datasource and a dashboard.
+services:
+  prometheus:
+    image: quay.io/prometheus/prometheus:v3.5.0
+    container_name: session20-prometheus
+    command:
+      - --config.file=/etc/prometheus/prometheus.yml
+      - --web.enable-lifecycle
+    ports:
+      - "9090:9090"
+    volumes:
+      - ./prometheus.yml:/etc/prometheus/prometheus.yml:ro
+      - ./alert-rules.yml:/etc/prometheus/alert-rules.yml:ro
+
+  node-exporter:
+    image: quay.io/prometheus/node-exporter:v1.8.2
+    container_name: session20-node-exporter
+    ports:
+      - "9100:9100"
+
+  demo-app:
+    build: ./demo-app
+    container_name: session20-demo-app
+    ports:
+      - "8000:8000"
+
+  grafana:
+    image: grafana/grafana:12.2.0
+    container_name: session20-grafana
+    ports:
+      - "3000:3000"
+    environment:
+      GF_SECURITY_ADMIN_USER: admin
+      GF_SECURITY_ADMIN_PASSWORD: admin
+      GF_AUTH_ANONYMOUS_ENABLED: "true"
+      GF_AUTH_ANONYMOUS_ORG_ROLE: Viewer
+    volumes:
+      - ./grafana/provisioning:/etc/grafana/provisioning:ro
+      - ./grafana/dashboards:/var/lib/grafana/dashboards:ro
+    depends_on:
+      - prometheus

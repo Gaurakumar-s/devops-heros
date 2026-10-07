@@ -1,0 +1,3 @@
+# Bandit SAST config for TaskBoard; pipeline fails on HIGH severity.
+skips: []
+exclude_dirs: [tests]
