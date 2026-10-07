@@ -24,7 +24,7 @@ Repository: <https://github.com/Gaurakumar-s/devops-heros> (public, 49+ commits)
 ## M6 – Security scanning (Trivy)
 ![trivy image on backend and frontend images](/assets/s21p-trivy.png)
 
-Trivy scanned the OS packages (Debian 13 for the backend, Alpine for the nginx frontend) and the Python/npm packages inside each image against its vulnerability DB. Result: 0 HIGH/CRITICAL fixable findings, so the pipeline's `--exit-code 1` gate passes. A clean scan means no *known* vulnerable package versions; it is not proof the application code is secure, which is what SAST (Bandit/Semgrep in Session 17) covers.
+Trivy scans the OS packages (Debian 13 for the backend, Alpine for the nginx frontend) and the Python/npm packages inside each image against its vulnerability DB. **The first pipeline run was blocked by the gate**: `starlette 0.41.3` (pulled in by the pinned `fastapi==0.115.6`) had 3 HIGH CVEs (CVE-2025-62727, CVE-2026-48818, CVE-2026-54283), so `--exit-code 1` failed the job and nothing was pushed or deployed. Fix: bump `fastapi` to 0.142.2 and `prometheus-fastapi-instrumentator` to 8.1.0 (needed for Starlette ≥ 1.x), tests still pass, rebuilt image scans clean. A clean scan means no *known* vulnerable package versions; it is not proof the application code is secure, which is what SAST (Bandit/Semgrep in Session 17) covers.
 
 ## M5 – CI/CD (GitHub Actions)
 Workflow: [`.github/workflows/session21-taskboard.yml`](../.github/workflows/session21-taskboard.yml) (repo-root copy of the project's `ci-cd.yml`, scoped to this folder): backend tests → build both images → Trivy gate → push `ghcr.io/gaurakumar-s/taskboard-backend` and `taskboard-frontend` with the git SHA and `latest` → deploy with Helm into a kind cluster and smoke-test the API.

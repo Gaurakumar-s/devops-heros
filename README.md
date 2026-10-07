@@ -21,9 +21,9 @@
 | 15 – Helm | [session-15-helm/Submission.md](session-15-helm/Submission.md) |
 | 16 – CI/CD with GitHub Actions | [session-16-github-actions/Submission.md](session-16-github-actions/Submission.md) · [workflow](.github/workflows/session16-ci-cd.yml) |
 | 17 – DevSecOps | [session-17-devsecops/Submission.md](session-17-devsecops/Submission.md) · [workflow](.github/workflows/session17-devsecops.yml) |
-| 18 – Terraform S3 + AWS services | [terraform-s3-demo](session18-terraform-iac/terraform-s3-demo/README.md) · [aws-services](session18-terraform-iac/aws-services/) |
-| 19 – Terraform project | [terraform-project](session19-cloud-terraform/terraform-project/README.md) |
+| 18 – Terraform S3 + AWS services | [session18-terraform-iac/Submission.md](session18-terraform-iac/Submission.md) · [terraform-s3-demo](session18-terraform-iac/terraform-s3-demo/README.md) · [aws-services](session18-terraform-iac/aws-services/) |
+| 19 – Terraform project | [session19-cloud-terraform/Submission.md](session19-cloud-terraform/Submission.md) · [terraform-project](session19-cloud-terraform/terraform-project/README.md) |
 | 20 – Monitoring, observability, GitOps | [session20-monitoring-observability-gitops/Submission.md](session20-monitoring-observability-gitops/Submission.md) |
-| 21 – Final project | [final-devops-project/README.md](final-devops-project/README.md) · [workflow](.github/workflows/final-project.yml) |
+| 21 – Final project | [final-devops-project/README.md](final-devops-project/README.md) · [workflow](.github/workflows/final-project.yml) · instructor capstone walkthrough: [session21-python/Submission.md](session21-python/Submission.md) · [workflow](.github/workflows/session21-taskboard.yml) |
 
 Pipelines: [Actions](https://github.com/Gaurakumar-s/devops-heros/actions) · Images: [GHCR packages](https://github.com/Gaurakumar-s?tab=packages)

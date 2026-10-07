@@ -1,9 +1,9 @@
-fastapi==0.115.6
+fastapi==0.142.2            # bumped from 0.115.6: Trivy flagged starlette 0.41.3 (CVE-2025-62727, CVE-2026-48818, CVE-2026-54283)
 uvicorn[standard]==0.34.0
 sqlalchemy==2.0.36
 psycopg[binary]==3.2.3
 pydantic-settings==2.7.1
-prometheus-fastapi-instrumentator==7.0.2
+prometheus-fastapi-instrumentator==8.1.0   # bumped for starlette >= 1.x
 alembic==1.14.0
 pytest==8.3.4
 httpx==0.28.1
