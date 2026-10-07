@@ -1,0 +1,145 @@
+# Session 16 – CI/CD demo pipeline for the Session 16 calculator app.
+#
+# Lives at the repo root because GitHub only runs workflows from
+# .github/workflows/ of the repository itself. Everything else is scoped to
+# session-16-github-actions/session-16-github-actions/10-final-cicd-pipeline.
+#
+# Concepts covered: workflow, triggers, jobs, steps, runners (matrix of OS /
+# Python versions), secrets, artifacts, build, test, CI (test + build) and
+# CD (deploy job that only runs on main after CI is green).
+
+name: Session 16 CI/CD Pipeline
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - "session-16-github-actions/session-16-github-actions/10-final-cicd-pipeline/**"
+      - ".github/workflows/session16-ci-cd.yml"
+  pull_request:
+    branches: [main]
+    paths:
+      - "session-16-github-actions/session-16-github-actions/10-final-cicd-pipeline/**"
+  workflow_dispatch:
+
+env:
+  APP_DIR: session-16-github-actions/session-16-github-actions/10-final-cicd-pipeline
+
+defaults:
+  run:
+    working-directory: session-16-github-actions/session-16-github-actions/10-final-cicd-pipeline
+
+jobs:
+  # ---------------------------------------------------------------- CI: test
+  test:
+    name: Test (${{ matrix.os }}, Python ${{ matrix.python }})
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, macos-latest]
+        python: ["3.11", "3.12"]
+    steps:
+      - name: Checkout source code
+        uses: actions/checkout@v4
+
+      - name: Setup Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: ${{ matrix.python }}
+
+      - name: Show runner info
+        run: |
+          echo "Runner OS : ${{ runner.os }}"
+          echo "Python    : $(python --version)"
+          echo "Workdir   : $(pwd)"
+
+      - name: Install dependencies
+        run: |
+          python -m pip install --upgrade pip
+          pip install -r requirements.txt
+
+      - name: Run unit tests
+        run: pytest -v --junitxml=test-results.xml
+
+      - name: Upload test report
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: test-results-${{ matrix.os }}-py${{ matrix.python }}
+          path: ${{ env.APP_DIR }}/test-results.xml
+
+  # ------------------------------------------------------ CI: security check
+  security-check:
+    name: Security Check
+    needs: test
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Check for committed sensitive files
+        run: |
+          echo "Scanning for .env / *.pem / *.key under $(pwd)"
+          if find . -type f \( -name ".env" -o -name "*.pem" -o -name "*.key" \) | grep -q .; then
+            echo "::error::Potential sensitive file found"; exit 1
+          fi
+          echo "No common sensitive files found."
+
+  # ---------------------------------------------------------------- CI: build
+  build:
+    name: Build Application
+    needs: test
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Build
+        run: |
+          chmod +x build.sh
+          ./build.sh
+          echo "Git SHA: ${{ github.sha }}" >> build/build-info.txt
+          echo "Run    : ${{ github.run_id }} (#${{ github.run_number }})" >> build/build-info.txt
+
+      - name: Show build output
+        run: cat build/build-info.txt
+
+      - name: Upload build artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: calculator-build
+          path: ${{ env.APP_DIR }}/build/
+          retention-days: 7
+
+  # ---------------------------------------------------------------- CD: deploy
+  deploy:
+    name: Deploy (CD)
+    needs: [build, security-check]
+    if: github.ref == 'refs/heads/main' && github.event_name != 'pull_request'
+    runs-on: ubuntu-latest
+    environment: session16-demo
+    steps:
+      - name: Download build artifact
+        uses: actions/download-artifact@v4
+        with:
+          name: calculator-build
+          path: release
+
+      - name: Use a secret (value is masked in the log)
+        working-directory: .
+        env:
+          DEPLOY_TOKEN: ${{ secrets.SESSION16_DEPLOY_TOKEN }}
+        run: |
+          if [ -z "$DEPLOY_TOKEN" ]; then echo "::error::SESSION16_DEPLOY_TOKEN secret is not set"; exit 1; fi
+          echo "Token length: ${#DEPLOY_TOKEN} characters"
+          echo "Token value : $DEPLOY_TOKEN"      # GitHub prints *** here
+
+      - name: Simulate deployment
+        working-directory: .
+        run: |
+          echo "Deploying artifact to the demo environment..."
+          ls -la release
+          cat release/build-info.txt
+          python3 -c "import sys; sys.path.insert(0,'release'); import calculator; print('smoke test: 2+3 =', calculator.add(2,3))"
+          echo "Deployment finished."

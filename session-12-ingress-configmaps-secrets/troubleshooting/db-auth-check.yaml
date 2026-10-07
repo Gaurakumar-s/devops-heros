@@ -1,0 +1,26 @@
+# Simulates the backend's DB login: the "database" only accepts the 14-char password.
+apiVersion: v1
+kind: Pod
+metadata:
+  name: db-auth-check
+spec:
+  restartPolicy: Never
+  containers:
+    - name: check
+      image: busybox:1.36
+      env:
+        - name: POSTGRES_USER
+          valueFrom: { secretKeyRef: { name: yatri-db-secret, key: POSTGRES_USER } }
+        - name: POSTGRES_PASSWORD
+          valueFrom: { secretKeyRef: { name: yatri-db-secret, key: POSTGRES_PASSWORD } }
+      command: ["sh", "-c"]
+      args:
+        - |
+          echo "Connecting to postgres as $POSTGRES_USER ..."
+          if [ "$POSTGRES_PASSWORD" = "secretpassword" ]; then
+            echo "Connected: password authentication OK"
+          else
+            echo "FATAL: password authentication failed for user \"$POSTGRES_USER\"" >&2
+            echo "received ${#POSTGRES_PASSWORD} characters, expected 14" >&2
+            exit 1
+          fi

@@ -1,0 +1,27 @@
+# FIX: give the container a memory limit that covers what it really allocates (~200Mi),
+# or fix the leak. Here the limit is raised and the loop keeps the process alive.
+apiVersion: v1
+kind: Pod
+metadata:
+  name: fail-5-oomkilled-pod
+  labels:
+    tier: triage-gauntlet
+    scenario: oomkilled
+spec:
+  containers:
+    - name: memory-leaker
+      image: python:3.12-alpine   # was 3.11-alpine; Docker Hub returned 429 Too Many Requests for that tag on my laptop
+      command:
+        - "python3"
+        - "-c"
+        - |
+          import time
+          print("Allocating memory...")
+          chunks = [b"x" * (10 * 1024 * 1024) for _ in range(10)]   # 100 MiB, within the limit
+          print("Allocated 100 MiB, sleeping")
+          time.sleep(3600)
+      resources:
+        requests:
+          memory: "128Mi"
+        limits:
+          memory: "256Mi"

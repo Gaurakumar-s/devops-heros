@@ -1,0 +1,51 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: yatri-backend
+  labels:
+    app: yatri-backend
+spec:
+  replicas: 2
+  selector:
+    matchLabels:
+      app: yatri-backend
+  template:
+    metadata:
+      labels:
+        app: yatri-backend
+    spec:
+      containers:
+        - name: backend
+          image: python:3.12-alpine
+          command: ["python3", "-c"]
+          # Tiny HTTP server. Every request to /healthz does 12,000 rounds of
+          # SHA-256 so each hit costs real CPU - that is what makes the HPA move.
+          args:
+            - |
+              import hashlib, http.server
+              class H(http.server.BaseHTTPRequestHandler):
+                  def do_GET(self):
+                      d = b"yatri"
+                      for _ in range(12000):
+                          d = hashlib.sha256(d).digest()
+                      self.send_response(200)
+                      self.send_header("Content-Type", "text/plain")
+                      self.end_headers()
+                      self.wfile.write(b"ok " + d[:4].hex().encode() + b"\n")
+                  def log_message(self, *a):
+                      pass
+              http.server.ThreadingHTTPServer(("", 5000), H).serve_forever()
+          ports:
+            - containerPort: 5000
+          resources:
+            requests:
+              cpu: 100m
+              memory: 64Mi
+            limits:
+              cpu: 500m
+              memory: 128Mi
+          readinessProbe:
+            httpGet:
+              path: /healthz
+              port: 5000
+            periodSeconds: 5

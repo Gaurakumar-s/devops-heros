@@ -1,0 +1,44 @@
+# FIX: point the client at a Service name that exists (the FQDN of the real DB Service).
+apiVersion: v1
+kind: Service
+metadata:
+  name: postgres-db
+  namespace: production
+spec:
+  selector:
+    app: postgres-db
+  ports:
+    - port: 5432
+      targetPort: 5432
+---
+apiVersion: v1
+kind: Pod
+metadata:
+  name: postgres-db
+  namespace: production
+  labels:
+    app: postgres-db
+spec:
+  containers:
+    - name: fake-db
+      image: busybox:1.36
+      command: ["sh", "-c", "while true; do echo -e 'HTTP/1.1 200 OK\\n\\ndb-ok' | nc -l -p 5432; done"]
+---
+apiVersion: v1
+kind: Pod
+metadata:
+  name: fail-4-dns-failure-pod
+  labels:
+    tier: triage-gauntlet
+    scenario: dns-failure
+spec:
+  containers:
+    - name: client
+      image: curlimages/curl:8.6.0
+      command: ["sh", "-c"]
+      args:
+        - |
+          echo "Attempting connection to internal database...";
+          curl -s --connect-timeout 3 http://postgres-db.production.svc.cluster.local:5432 && echo "DB reachable"
+          echo "Process sleeping...";
+          sleep 3600

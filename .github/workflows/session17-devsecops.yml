@@ -1,0 +1,246 @@
+# Session 17 – CI/CD + DevSecOps pipeline for session-17-devsecops/demo (Flask app).
+#
+# Flow (each arrow is a `needs:` dependency):
+#   build -> unit-test -> sast -> sca -> secret-scan -> docker-build
+#         -> image-scan -> security-gate -> push-image -> deploy (kind cluster)
+#
+# Tools: pytest, Bandit + Semgrep (SAST), pip-audit (SCA), Gitleaks (secrets),
+# Trivy (container image), GHCR (registry), kind + kubectl (deployment).
+
+name: Session 17 DevSecOps Pipeline
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - "session-17-devsecops/demo/**"
+      - ".github/workflows/session17-devsecops.yml"
+  pull_request:
+    branches: [main]
+    paths:
+      - "session-17-devsecops/demo/**"
+  workflow_dispatch:
+
+env:
+  APP_DIR: session-17-devsecops/demo
+  IMAGE_NAME: ghcr.io/${{ github.repository_owner }}/session17-hey-cicd
+
+defaults:
+  run:
+    working-directory: session-17-devsecops/demo
+
+jobs:
+  build:
+    name: Build
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+          cache: pip
+          cache-dependency-path: ${{ env.APP_DIR }}/requirements*.txt
+      - name: Install and byte-compile
+        run: |
+          pip install -r requirements-dev.txt
+          python -m compileall -q app
+          echo "Build OK"
+
+  unit-test:
+    name: Unit Test
+    needs: build
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+          cache: pip
+          cache-dependency-path: ${{ env.APP_DIR }}/requirements*.txt
+      - run: pip install -r requirements-dev.txt
+      - name: pytest with coverage
+        run: pytest --cov=app --cov-report=term-missing --junitxml=pytest.xml
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: unit-test-report
+          path: ${{ env.APP_DIR }}/pytest.xml
+
+  sast:
+    name: SAST (Bandit + Semgrep)
+    needs: unit-test
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - name: Bandit
+        run: |
+          pip install bandit
+          bandit -c security/bandit.yaml -r app -f txt -o bandit-report.txt || true
+          cat bandit-report.txt
+          # fail only on HIGH severity findings
+          bandit -c security/bandit.yaml -r app --severity-level high -q
+      - name: Semgrep
+        run: |
+          pip install semgrep
+          semgrep scan --config p/python --config p/flask --error --metrics=off app
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: sast-report
+          path: ${{ env.APP_DIR }}/bandit-report.txt
+
+  sca:
+    name: SCA (pip-audit)
+    needs: sast
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - name: Audit dependencies
+        run: |
+          pip install pip-audit
+          pip-audit -r requirements.txt --desc on
+
+  secret-scan:
+    name: Secret Scan (Gitleaks)
+    needs: sca
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - name: Gitleaks
+        working-directory: .
+        run: |
+          curl -sSL https://github.com/gitleaks/gitleaks/releases/download/v8.30.1/gitleaks_8.30.1_linux_x64.tar.gz | tar -xz gitleaks
+          ./gitleaks dir ${{ env.APP_DIR }} --config ${{ env.APP_DIR }}/security/gitleaks.toml --redact --verbose
+
+  docker-build:
+    name: Docker Build
+    needs: secret-scan
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: docker/setup-buildx-action@v3
+      - name: Build image (load into local docker, not pushed yet)
+        uses: docker/build-push-action@v6
+        with:
+          context: ${{ env.APP_DIR }}
+          tags: ${{ env.IMAGE_NAME }}:${{ github.sha }}
+          outputs: type=docker,dest=/tmp/image.tar
+      - uses: actions/upload-artifact@v4
+        with:
+          name: docker-image
+          path: /tmp/image.tar
+          retention-days: 1
+
+  image-scan:
+    name: Container Image Scan (Trivy)
+    needs: docker-build
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/download-artifact@v4
+        with:
+          name: docker-image
+          path: /tmp
+      - name: Trivy – full report (informational)
+        uses: aquasecurity/trivy-action@0.28.0
+        with:
+          input: /tmp/image.tar
+          format: table
+          trivyignores: ${{ env.APP_DIR }}/security/.trivyignore
+      - name: Trivy – gate on CRITICAL
+        uses: aquasecurity/trivy-action@0.28.0
+        with:
+          input: /tmp/image.tar
+          format: table
+          severity: CRITICAL
+          ignore-unfixed: true
+          exit-code: "1"
+          trivyignores: ${{ env.APP_DIR }}/security/.trivyignore
+
+  security-gate:
+    name: Security Gate
+    needs: [sast, sca, secret-scan, image-scan]
+    runs-on: ubuntu-latest
+    steps:
+      - name: All security checks passed
+        working-directory: .
+        run: |
+          echo "SAST ........ ${{ needs.sast.result }}"
+          echo "SCA ......... ${{ needs.sca.result }}"
+          echo "Secret scan . ${{ needs.secret-scan.result }}"
+          echo "Image scan .. ${{ needs.image-scan.result }}"
+          echo "GATE OPEN – image may be published and deployed"
+
+  push-image:
+    name: Push Image (GHCR)
+    needs: security-gate
+    if: github.event_name != 'pull_request'
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      packages: write
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          name: docker-image
+          path: /tmp
+      - uses: docker/login-action@v3
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+      - name: Load, tag and push
+        working-directory: .
+        run: |
+          docker load -i /tmp/image.tar
+          IMAGE=$(echo "${{ env.IMAGE_NAME }}" | tr '[:upper:]' '[:lower:]')
+          docker tag ${{ env.IMAGE_NAME }}:${{ github.sha }} $IMAGE:${{ github.sha }}
+          docker tag ${{ env.IMAGE_NAME }}:${{ github.sha }} $IMAGE:latest
+          docker push $IMAGE:${{ github.sha }}
+          docker push $IMAGE:latest
+          echo "pushed $IMAGE:${{ github.sha }}"
+
+  deploy:
+    name: Deploy to Kubernetes (kind)
+    needs: push-image
+    if: github.ref == 'refs/heads/main' && github.event_name != 'pull_request'
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      packages: read
+    steps:
+      - uses: actions/checkout@v4
+      - name: Create kind cluster
+        uses: helm/kind-action@v1.10.0
+      - name: Render manifests with the pushed image
+        run: |
+          IMAGE=$(echo "${{ env.IMAGE_NAME }}" | tr '[:upper:]' '[:lower:]')
+          sed -i "s|__IMAGE__|$IMAGE:${{ github.sha }}|g" k8s/deployment.yaml
+          grep image: k8s/deployment.yaml
+      - name: Registry credentials for the cluster
+        run: |
+          kubectl create secret docker-registry ghcr-creds \
+            --docker-server=ghcr.io --docker-username=${{ github.actor }} \
+            --docker-password=${{ secrets.GITHUB_TOKEN }}
+      - name: Deploy
+        run: |
+          kubectl apply -f k8s/deployment.yaml -f k8s/service.yaml
+          kubectl rollout status deployment/session17-python --timeout=120s
+          kubectl get pods,svc -o wide
+      - name: Smoke test through the Service
+        run: |
+          kubectl port-forward service/session17-python 5001:80 &
+          sleep 5
+          curl -sf http://localhost:5001/health
+          echo
+          curl -sf http://localhost:5001/api/status
+          echo
+          curl -s http://localhost:5001/ | head -n 8

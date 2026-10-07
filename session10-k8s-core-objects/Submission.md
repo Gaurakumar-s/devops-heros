@@ -57,3 +57,27 @@ Applying v2 with `strategy.type: Recreate` terminates all v1 Pods first, then cr
 `kubectl rollout undo` goes back to v1 the same way (with another short outage).
 
 ![recreate – verify v2, rollback, cleanup](/assets/s10-recreate-03.png)
+
+## Task 2 – Pod Lifecycle (`pod-lifecycle/`)
+All 12 YAML files from `pod-lifecycle/` were applied on minikube, then checked with `kubectl get pod`, `kubectl describe pod`, `kubectl logs` and jsonpath on `.status`.
+
+### Phases: Running, Pending, Succeeded, Failed, CrashLoopBackOff, ImagePullBackOff
+![pod lifecycle – running, pending, succeeded, failed](/assets/s10-lifecycle-01.png)
+
+What I observed:
+- `lifecycle-running` – phase `Running`, container state `running` with a `startedAt` timestamp.
+- `lifecycle-pending` – stays `Pending` forever. `describe` shows `PodScheduled=False` and the event `0/1 nodes are available: 1 Insufficient memory`. The Pod never gets a node, so no container is ever created.
+- `lifecycle-succeeded` – the command exits 0 after 5 s. `kubectl get` prints `Completed`, but the real phase is `Succeeded` and the container is `terminated` with `exitCode 0`.
+- `lifecycle-failed` – same script but `exit 1`. STATUS shows `Error`, the phase is `Failed`, `exitCode 1`. `restartPolicy: Never` is what stops Kubernetes from retrying.
+- The STATUS column (`Completed`, `Error`, `CrashLoopBackOff`, …) is a summary; the only official phases are Pending, Running, Succeeded, Failed, Unknown. Container states are Waiting, Running, Terminated.
+
+### CrashLoopBackOff, ImagePullBackOff, probes, init and multi-container Pods, graceful termination
+![pod lifecycle – crashloop, imagepull, probes, init, sidecar, termination](/assets/s10-lifecycle-02.png)
+
+- `lifecycle-crashloop` – the container exits 1 every time, so RESTARTS keeps increasing and the events show `Back-off restarting failed container`. Between restarts the status flips between `Error` and `CrashLoopBackOff` while the kubelet waits with an exponentially growing back-off.
+- `lifecycle-image-error` – image `jakwehrgkaejw:kahsdfgkhj` does not exist. Events show `Failed to pull image` → `ErrImagePull` → `Back-off pulling image` → `ImagePullBackOff`. The Pod is scheduled but the container is stuck in `Waiting`.
+- `lifecycle-startup` – READY is `0/1` for the first ~30 s while the startup probe fails (`Startup probe failed` events); once `/tmp/started` exists it becomes `1/1`. Liveness/readiness are paused until the startup probe passes.
+- `lifecycle-liveness` – the script deletes `/tmp/healthy` after 20 s, the liveness probe fails 3 times and the kubelet logs `Container app failed liveness probe, will be restarted`.
+- `lifecycle-init` – STATUS is `Init:0/1` while the init container sleeps 10 s; only after `Init complete` is the nginx container created and started.
+- `lifecycle-multi-container` – READY shows `2/2`; the sidecar logs `Sidecar is running` every 10 s next to nginx in the same Pod.
+- `lifecycle-termination` – `kubectl delete --grace-period=30` sends SIGTERM, the Pod shows `Terminating`, and it is gone once the process exits (or when the grace period ends).

@@ -1,0 +1,14 @@
+# Gitleaks (secret scanning) configuration.
+# Extends the default ruleset and allowlists the obvious false positives in this demo.
+[extend]
+useDefault = true
+
+[allowlist]
+description = "Demo/test values that are not real secrets"
+paths = [
+  '''tests/''',
+  '''security/''',
+]
+regexes = [
+  '''EXAMPLE_KEY''',
+]

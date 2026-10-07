@@ -1,0 +1,7 @@
+# Bandit (SAST) configuration for the Session 17 demo app.
+# B104 (binding to 0.0.0.0) is expected for a containerised web app, so it is
+# reported but not treated as a failure; the pipeline fails only on HIGH severity.
+skips: []
+exclude_dirs:
+  - tests
+  - .venv
