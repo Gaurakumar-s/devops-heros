@@ -149,21 +149,17 @@ jobs:
         with:
           name: docker-image
           path: /tmp
+      - name: Install Trivy
+        working-directory: .
+        run: |
+          curl -sSL https://github.com/aquasecurity/trivy/releases/download/v0.75.0/trivy_0.75.0_Linux-64bit.tar.gz | tar -xz trivy
+          ./trivy --version
       - name: Trivy – full report (informational)
-        uses: aquasecurity/trivy-action@0.28.0
-        with:
-          input: /tmp/image.tar
-          format: table
-          trivyignores: ${{ env.APP_DIR }}/security/.trivyignore
-      - name: Trivy – gate on CRITICAL
-        uses: aquasecurity/trivy-action@0.28.0
-        with:
-          input: /tmp/image.tar
-          format: table
-          severity: CRITICAL
-          ignore-unfixed: true
-          exit-code: "1"
-          trivyignores: ${{ env.APP_DIR }}/security/.trivyignore
+        working-directory: .
+        run: ./trivy image --input /tmp/image.tar --scanners vuln --format table --ignorefile ${{ env.APP_DIR }}/security/.trivyignore
+      - name: Trivy – gate on fixable CRITICAL
+        working-directory: .
+        run: ./trivy image --input /tmp/image.tar --scanners vuln --severity CRITICAL --ignore-unfixed --exit-code 1 --ignorefile ${{ env.APP_DIR }}/security/.trivyignore
 
   security-gate:
     name: Security Gate
