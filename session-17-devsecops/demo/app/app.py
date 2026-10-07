@@ -231,5 +231,12 @@ def server_error(e):
 
 
 if __name__ == "__main__":
-    # debug mode is opt-in via FLASK_DEBUG=1; never on by default (Bandit B201)
-    app.run(host="0.0.0.0", port=5001, debug=os.environ.get("FLASK_DEBUG") == "1")  # nosec B104
+    # Hardened after the SAST stage flagged this line:
+    #  - Bandit B201: debug=True exposes the Werkzeug debugger -> debug is opt-in via FLASK_DEBUG=1
+    #  - Semgrep avoid_app_run_with_bad_host / Bandit B104: binding 0.0.0.0 by default ->
+    #    bind to localhost unless FLASK_HOST is set (the Dockerfile sets it to 0.0.0.0 on purpose)
+    app.run(
+        host=os.environ.get("FLASK_HOST", "127.0.0.1"),
+        port=int(os.environ.get("PORT", "5001")),
+        debug=os.environ.get("FLASK_DEBUG") == "1",
+    )
